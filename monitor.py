@@ -1,142 +1,61 @@
-from pandas_datareader import data
-import pandas_datareader.data as web
-from matplotlib import pyplot as plot
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from pandas.plotting import register_matplotlib_converters
-register_matplotlib_converters()
-from enum import Enum
+"""
+TODO: Abstract data access
+TODO: Time series to sql
+TODO: Add 'web' data access type (web crawler), which also creates pandas dataframe (https://www.ariva.de/basf-aktie/historische_kurse)
+TODO: Webserver: representation and control of data
+"""
 
-QUANDL_API_KEY = 'y-owmY6P2z8EpzQyNL53'
-today = datetime.strftime(datetime.now(), '%Y-%m-%d')
+import threading
+import csv
+import time
 
-class Indicators(Enum):
-    """
-    Extend/narrow this enum to consider less indicators
-    """
-    RSI14 = 1
-    EMA10 = 2
-    SMA10 = 3
-    EMA100 = 4
+import config
+import technical_indicators
+from stock import Stock
+from emailer import Emailer
 
-def get_past_date(days):
-    '''Returns date x days in the past from today'''
-    return datetime.strftime(datetime.now() - timedelta(days), '%Y-%m-%d')
+emailer = Emailer()
+quandl_stocks = []
+DAYS = 100
 
-def get_stock(symbol, days):
-    """
-    Returns the given symbol as panda dataframe
+# Append and get are each atomic ops according to python doc, so
+# no synchronization required when accessed from different threads
+alarms = []
 
-    Params:
-    symbol -- the symbol to query
-    days -- number of days to get counting backwards from today
-    """
-    past_date = get_past_date(days)
-    df = web.DataReader(symbol, 'quandl', start=past_date, end=today, access_key=QUANDL_API_KEY)
-    return df
+def send_alarm(alarm_symbols):
+    if (len(alarm_symbols) > 0):
+        for recepient in config.email_recepients:
+            print('Sending alarm mail to ' + recepient)
+            message = ''
+            for alarm_symbol in alarm_symbols:
+                message += "Ticker: " + alarm_symbol.name + " (" + alarm_symbol.symbol + ") exceeded treshold. RSI: " + str(f'{alarm_symbol.get_latest_rsi():2.2f}') + "\n"
+            print (message + "\n")
+            subject = "Stock Monitor: Symbols exceeded their thresholds"
+            emailer.send_mail(recepient, subject, message)
 
-def get_closing_prices(df, days):
-    """
-    Get panda time series of closing prices for given DF
-    """
-    close = df['Close']
-    past_date = get_past_date(days)
-    all_weekdays = pd.date_range(start=past_date, end=today, freq='B')
-    close = close.reindex(all_weekdays)
-    close = close.fillna(method='ffill')
-    return close
+def evaluate_quandl_stocks():
+    print('Started evaluating QUANDL stocks ...')
 
-def get_sma(prices, period):
-    """
-    Gets the simple moving average for the given pandas price series
-    
-    Params:
-    prices -- panda series holding the prices
-    period -- average over that many days
-    """
-    if (prices.size < period):
-        raise ValueError('Series too short for intended rolling avg')
-    return prices.rolling(window=period).mean()
+    with open('quandl-fse-stocks.csv', newline='') as csvfile:
+        print('Building stock list ...')
+        file_reader = csv.reader(csvfile, delimiter=',')
+        next(file_reader)
+        for row in file_reader:
+            name = row[1]
+            symbol = 'FSE' + row[0]
+            stock = Stock(DAYS, name, symbol)
+            quandl_stocks.append(stock)
 
-def get_ema(prices, period):
-    """
-    Gets the exponential moving average for the given pandas price series
-    
-    Params:
-    prices -- panda series holding the prices
-    period -- average over that many days
-    """
-    if (prices.size < period):
-        raise ValueError('Series too short for intended rolling avg')
-    return pd.Series.ewm(prices, span=period).mean()
+    for stock in quandl_stocks:
+        last_rsi = stock.get_latest_rsi()
+        print('RSI for ' + stock.symbol + ': ' + str(last_rsi) + '\n')
+        if (last_rsi > 0 and (last_rsi < config.default_min_rsi or last_rsi > config.default_max_rsi)):
+            alarms.append(stock)
+        #indicators_to_plot = [technical_indicators.Indicators.EMA10]
+        #stock.draw_plot(indicators_to_plot)
 
-def get_rsi(series, period=14):
-    """
-    Gets the exponential moving average for the given pandas price series
-    
-    Params:
-    prices -- panda series holding the prices
-    period -- average over that many days
-    """
-    delta = series.diff().dropna()
+quandl_thread = threading.Thread(target=evaluate_quandl_stocks)
+quandl_thread.start()
+quandl_thread.join()
 
-    up = delta * 0
-    down = up.copy()
-
-    up[delta > 0] = delta[delta > 0]
-    down[delta < 0] = -delta[delta < 0]
-
-    up[up.index[period]] = np.mean( up[:period] ) #first value is sum of avg gains
-    up = up.drop(up.index[:(period)])
-
-    down[down.index[period]] = np.mean( down[:period] ) #first value is sum of avg losses
-    down = down.drop(down.index[:(period)])
-
-    rolling_up = up.ewm(com=period).mean()
-    rolling_down = down.ewm(com=period).mean()
-
-    rs = rolling_up / rolling_down
-    return 100.0 - 100.0 / (1.0 + rs)
-
-def draw_plot(df, symbol):
-    """
-    Draws a plot of the given dataframe.
-
-    Indicators are added, if they are present in the dataframe and part
-    of the Indicators enum.
-    """
-    prices = get_closing_prices(df, days)
-    fig, ax = plot.subplots(figsize=(16,9))
-    ax.plot(prices.index, prices, label=symbol)
-
-    #rsi14 = df['RSI14']
-    #ax.plot(rsi14.index, rsi14, label='RSI 14')
-
-    for column in df.columns:
-        for indicator in Indicators:
-            if (column is indicator.name):
-                values = df[column]
-                ax.plot(values.index, values, label=column)
-
-    ax.set_xlabel('Date')
-    ax.set_ylabel('Closing price')
-    ax.legend()
-    plot.show()
-
-
-days = 1000
-symbol = 'FSE/MOR_X'
-
-# Get the data
-df = get_stock(symbol, days)
-
-# Add Indicators to dataframe
-closing = get_closing_prices(df, days)
-df['RSI14'] = get_rsi(closing)
-df['EMA10'] = get_ema(closing, 10)
-#df['SMA10'] = get_sma(closing, 10)
-df['EMA100'] = get_ema(closing, 100)
-
-# Plot
-draw_plot(df, symbol)
+send_alarm(alarms)
