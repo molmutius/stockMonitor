@@ -5,9 +5,6 @@ import numpy as np
 from enum import Enum
 
 class Indicators(Enum):
-    """
-    Extend/narrow this enum to consider less indicators
-    """
     RSI14 = 1
     EMA10 = 2
     SMA10 = 3
