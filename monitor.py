@@ -10,65 +10,114 @@ import csv
 
 import config
 import technical_indicators
+from datetime import datetime
 from stock import Stock
 from emailer import Emailer
 from data_access import DataAccess
 
 emailer = Emailer()
-quandl_stocks = []
-DAYS = 100
+DAYS = 80
 
 # Append and get are each atomic ops according to python doc, so
 # no synchronization required when accessed from different threads
-alarms = []
+alarms_above = []
+alarms_below = []
 
-def send_alarm(alarm_symbols):
-    if (len(alarm_symbols) > 0):
-        message = ''
-        for alarm_symbol in alarm_symbols:
-            message += ("RSI: " + str(f'{alarm_symbol.get_latest_rsi():2.2f}') + ". " +             
-                "Exceeded since: " + str(alarm_symbol.get_rsi_exceeded_since_date()) +
-                "\t" + alarm_symbol.name + " (" + alarm_symbol.symbol + ") exceeded treshold.\n")
-        print (message + "\n")
-        subject = "Stock Monitor: Symbols exceeded their thresholds"
-        for recepient in config.email_recepients:
-            print('Sending alarm mail to ' + recepient)
-            emailer.send_mail(recepient, subject, message)
+def send_alarm(alarms_below, alarms_above):
+    today = datetime.strftime(datetime.now(), '%Y-%m-%d')
+    total_stocks = len(fse_stocks) + len(sandp500_stocks)
+    message = f'RSI Stockmonitor from {today}.\n'
+    message += '\n'
+    message += f'Total stocks: {total_stocks}\n'
+    message += f'Stocks below min RSI threshold: {len(alarms_below)} == {get_percentage(total_stocks, len(alarms_below))}%\n'
+    message += f'Stocks above max RSI threshold: {len(alarms_above)} == {get_percentage(total_stocks, len(alarms_above))}%\n'
+    message += '\n'
+    for symbol in alarms_below:
+        message += get_mail_text(symbol)
+    message += '\n'
+    for symbol in alarms_above:
+        message += get_mail_text(symbol)
+    print (message)
+    subject = "Stock Monitor: Symbols exceeded their thresholds"
+    for recepient in config.email_recepients:
+        print('Sending alarm mail to ' + recepient)
+        emailer.send_mail(recepient, subject, message)
 
-def evaluate_quandl_stocks():
-    print('Started evaluating QUANDL stocks ...')
+def get_mail_text(symbol):
+    text = ''
+    text += "RSI: " + str(f'{symbol.get_latest_rsi():2.2f}') + ". "
+    text += f'Exceeded since: {str(symbol.get_rsi_exceeded_since_date())}'
+    text += f'\tSymbol: {symbol.name} ({symbol.symbol})'
+    text += '\n'
+    return text
 
+def get_percentage(total, part):
+    if total == 0:
+        return 0
+    return f'{(part/total)*100:2.2f}'
+
+def evaluate_sandp500_stocks():
+    print('Started evaluating STOOQ.com stocks ...', flush=True)
     # Needs to be created from within the same thread
     data_access = DataAccess()
+    global sandp500_stocks
+    sandp500_stocks = evaluate_stocks('stooq', 'sandp500.csv', data_access)
 
+def evaluate_fse_stocks():
+    print('Started evaluating QUANDL stocks ...', flush=True)
+    # DataAccess needs to be created from within the same thread,
+    # otherwise one object competes for the resources across threads
+    data_access = DataAccess()
+    global fse_stocks
+    fse_stocks = evaluate_stocks('quandl', 'quandl_fse_stocks.csv', data_access)
+
+def evaluate_stocks(remote_source, csv_file, data_access):
+    output_list = []
     # First create a list of stocks to query
-    with open('quandl_fse_stocks.csv', newline='') as csvfile:
+    with open(csv_file, newline='') as csvfile:
         file_reader = csv.reader(csvfile, delimiter=',')
+        # Skip the csv header
         next(file_reader)
         for row in file_reader:
             name = row[1]
-            symbol = 'FSE/' + row[0]
+            if remote_source == 'quandl':
+                symbol = 'FSE/' + row[0]
+            elif remote_source == 'stooq':
+                symbol = row[0] + '.US'
             min_rsi = config.default_min_rsi
             max_rsi = config.default_max_rsi
             try:
                 min_rsi = config.custom_rsi(symbol)[0]
                 max_rsi = config.custom_rsi(symbol)[1]
-                print(f'Using custom RSI values ({min_rsi}, {max_rsi}) for {symbol}')
+                print(f'Using custom RSI values ({min_rsi}, {max_rsi}) for {symbol}', flush=True)
             except KeyError:
-                print(f'Using default values for RSI thresholds for {symbol}')
-            stock = Stock(DAYS, name, symbol, data_access, min_rsi, max_rsi)
-            quandl_stocks.append(stock)
+                print(f'Using default values for RSI thresholds for {symbol}', flush=True)
+            stock = Stock(DAYS, name, symbol, data_access, remote_source, min_rsi, max_rsi)
+            output_list.append(stock)
 
-    for stock in quandl_stocks:
+    # Calculate RSI values for all stocks
+    for stock in output_list:
         last_rsi = stock.get_latest_rsi()
-        print(f'RSI for {stock.symbol}: {str(last_rsi)} \n')
-        if (last_rsi > 0 and (last_rsi < stock.min_rsi or last_rsi > stock.max_rsi)):
-            alarms.append(stock)
+        print(f'RSI for {stock.symbol}: {str(last_rsi)} \n', flush=True)
+        if (last_rsi > 0):
+            if (last_rsi < stock.min_rsi):
+                alarms_below.append(stock)
+            if (last_rsi > stock.max_rsi):
+                alarms_above.append(stock)
         #indicators_to_plot = [technical_indicators.Indicators.EMA10, technical_indicators.Indicators.SMA10]
         #stock.draw_plot(indicators_to_plot)
 
-quandl_thread = threading.Thread(target=evaluate_quandl_stocks)
-quandl_thread.start()
-quandl_thread.join()
+    return output_list
 
-send_alarm(alarms)
+fse_thread = threading.Thread(target=evaluate_fse_stocks)
+fse_thread.start()
+
+sandp500_thread = threading.Thread(target=evaluate_sandp500_stocks)
+sandp500_thread.start()
+
+fse_thread.join()
+sandp500_thread.join()
+
+alarms_below = sorted(alarms_below, key=lambda stock: stock.last_rsi)
+alarms_above = sorted(alarms_above, key=lambda stock: stock.last_rsi)
+send_alarm(alarms_below, alarms_above)

@@ -14,13 +14,13 @@ def get_rsi(symbol, df, series, period=14):
     """
     Gets the rsi for the given pandas price series
     \n
-    Params:\n
-    df      -- pandas.dataFrame to which to append to\n
-    prices  -- pandas.series holding the prices\n
-    period  -- average over that many days, defaults to 14
+    Params:
+    - df      -- pandas.dataFrame to which to append to
+    - prices  -- pandas.series holding the prices
+    - period  -- average over that many days, defaults to 14
     """
     if (df.size <= period):
-        raise ValueError('Series too short')
+        raise ValueError(f'{symbol}: Series too short')
     try:
         delta = series.diff().dropna()
 
@@ -45,19 +45,17 @@ def get_rsi(symbol, df, series, period=14):
 
         df = df.join(rsi_series)
         return df
-    except IndexError:
-        print('Error processing ' + symbol)
-        return df
-    except ValueError:
+    except (IndexError, ValueError) as e:
+        print(f'Error processing {symbol}. Cause: {e}')
         return df
 
 def get_sma(df, prices, period):
     """
     Gets the simple moving average for the given pandas price series\n
     \n
-    Params:\n
-    prices -- panda series holding the prices
-    period -- average over that many days
+    Params:
+    - prices -- panda series holding the prices
+    - period -- average over that many days
     """
     if (prices.size < period):
         raise ValueError('Series too short for intended rolling avg')
@@ -70,8 +68,8 @@ def get_ema(df, prices, period):
     Gets the exponential moving average for the given pandas price series\n
     \n
     Params:\n
-    prices -- panda series holding the prices
-    period -- average over that many days
+    - prices -- panda series holding the prices
+    - period -- average over that many days
     """
     if (prices.size < period):
         raise ValueError('Series too short for intended rolling avg')

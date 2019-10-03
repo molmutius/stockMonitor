@@ -22,8 +22,21 @@ class DataAccess:
         df = pd.read_sql('select * from ' + self.sql_friendly_symbol(symbol), self.conn)
         return df
 
-    def get_df_witout_db(self, symbol, start_date, end_date):
-        df = web.DataReader(symbol, 'quandl', start=start_date, end=end_date, access_key=config.data_quandl_api_key)
+    def get_df_witout_db(self, symbol, start_date, end_date, source):
+        """
+        Fetches the symbol from the given remote source.\n
+        Sources can be (so far):\n
+        - quandl
+        - stooq
+        """
+        try:
+            if source == 'quandl':
+                df = web.DataReader(symbol, 'quandl', start=start_date, end=end_date, access_key=config.data_quandl_api_key)
+            elif source == 'stooq':
+                df = web.DataReader(symbol, 'stooq', start=start_date, end=end_date)
+        except Exception as e:
+            print(f'Returning empty dataframe for {symbol}. Cause: {e}')
+            return pd.DataFrame()
         return df
 
     def get_df(self, symbol, start_date, end_date):
@@ -35,10 +48,12 @@ class DataAccess:
         """
         # 1. Try Get df from DB
         df = None
+        isInDb = False
         try:
             # 2. If available in DB see if we need to fetch data for missing dates
             df = self.get_df_from_db(symbol)
             print(f'{symbol}: is in DB.')
+            isInDb = True
             last_db_date_object = datetime.strptime(df['Date'].iloc[0], date_format)
             desired_last_date_object = datetime.strptime(end_date, '%Y-%m-%d')
             date_delta = abs((last_db_date_object - desired_last_date_object).days)
@@ -62,7 +77,10 @@ class DataAccess:
         except KeyError:
             pass
         df.index.name = 'Date'
-        self.write_to_db(df, symbol)
+        # Only write if not yet in DB
+        # TODO: Only temp workaround 
+        if (not isInDb):
+            self.write_to_db(df, symbol)
         return df
 
     def sql_friendly_symbol(self, symbol):

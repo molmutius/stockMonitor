@@ -14,39 +14,41 @@ class Stock:
     """
     This class represents a stock with access to its prices and derived indicators
     \n
-    Constructor Params:\n
-    days    -- number of days to look at, beginning from today\n
-    name    -- real name of the stock\n
-    symbol  -- the symbolic representation of this stock will be used to get the data\n
-    data_access -- DataAccess object\n
-    df      -- pandas.DataFrame\n
-    min_rsi -- send alarm for this stock if below this value\n
-    max_rsi -- send alarm for this stock if above this value
+    Constructor Params:
+    - days          -- timeframe, looking backwards from today
+    - name          -- real name of the stock
+    - symbol        -- the symbolic representation of this stock will be used to get the data
+    - data_access   -- DataAccess object
+    - source        -- source to fetch data from
+    - df            -- pandas.DataFrame
+    - min_rsi       -- send alarm for this stock if below this value
+    - max_rsi       -- send alarm for this stock if above this value
     """
 
     today = datetime.strftime(datetime.now(), '%Y-%m-%d')
 
-    def __init__(self, days, name, symbol, data_access, min_rsi=config.default_min_rsi, max_rsi=config.default_max_rsi):
+    def __init__(self, days, name, symbol, data_access, source, min_rsi=config.default_min_rsi, max_rsi=config.default_max_rsi):
         self.days = days
         self.name = name
         self.symbol = symbol
         self.data_access = data_access
-        self.df = self.get_stock_data()
+        self.df = self.get_stock_data(source)
         self.min_rsi = min_rsi
         self.max_rsi = max_rsi
+        self.last_rsi = -1
         if (self.df.size > 0):
             self.has_enough_data = True
         else:
             self.has_enough_data = False
 
-    def get_stock_data(self):
+    def get_stock_data(self, source):
         """
         Fetches this stock as pandas.DataFrame\n
         """
         # QUANDL FSE Data is updated 6:30 pm ET == 00:30 am Berlin
-        print('Getting data for ' + self.symbol + ' [Source: Quandl]')
+        print('Getting data for ' + self.symbol + ' [Source: ' + source + ']')
         past_date = helpers.get_date_in_the_past(self.days)
-        df = self.data_access.get_df_witout_db(self.symbol, past_date, self.today)
+        df = self.data_access.get_df_witout_db(self.symbol, past_date, self.today, source)
         return df
 
     def get_closing_prices(self):
@@ -74,9 +76,10 @@ class Stock:
                 closings = self.get_closing_prices()
                 self.df = technical_indicators.get_rsi(self.symbol, self.df, closings, 14)
             last_rsi = self.df['RSI14'].iloc[0]
+            self.last_rsi = last_rsi
             return last_rsi
-        except KeyError:
-            print('Could not determine RSI for ' + self.symbol)
+        except (KeyError, ValueError) as e:
+            print(f'Could not determine RSI for {self.symbol}. Cause: {e}')
             return -1
 
     # This approach breaks when RSI oscilates between the 2 thresholds in 2 consecutive intervals.
@@ -89,7 +92,7 @@ class Stock:
         exceed_mask = above | below
         # Get date of the first index before today where the threshold is not exceeded
         first_date_not_exceeded = self.df[exceed_mask.eq(0)].index[0]
-        return first_date_not_exceeded
+        return datetime.strftime(first_date_not_exceeded, '%Y-%m-%d')
 
     def draw_plot(self, indicators):
         """
