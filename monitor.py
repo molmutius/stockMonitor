@@ -7,6 +7,7 @@ TODO: Webserver: representation and control of data
 
 import threading
 import csv
+import signal, sys, os
 
 import config
 import technical_indicators
@@ -16,16 +17,24 @@ from emailer import Emailer
 from data_access import DataAccess
 
 emailer = Emailer()
-DAYS = 80
+DAYS = 60
 
 # Append and get are each atomic ops according to python doc, so
 # no synchronization required when accessed from different threads
 alarms_above = []
 alarms_below = []
 
+fse_stocks = []
+sandp500_stocks = []
+iex_stocks = []
+
+def handler(signum, frame):
+    print ('Bye')
+    sys.exit()
+
 def send_alarm(alarms_below, alarms_above):
     today = datetime.strftime(datetime.now(), '%Y-%m-%d')
-    total_stocks = len(fse_stocks) + len(sandp500_stocks)
+    total_stocks = len(fse_stocks) + len(sandp500_stocks) + len(iex_stocks)
     message = f'RSI Stockmonitor from {today}.\n'
     message += '\n'
     message += f'Total stocks: {total_stocks}\n'
@@ -37,11 +46,11 @@ def send_alarm(alarms_below, alarms_above):
     message += '\n'
     for symbol in alarms_above:
         message += get_mail_text(symbol)
-    print (message)
+    print ("\n" + message)
     subject = "Stock Monitor: Symbols exceeded their thresholds"
     for recepient in config.email_recepients:
         print('Sending alarm mail to ' + recepient)
-        emailer.send_mail(recepient, subject, message)
+        #emailer.send_mail(recepient, subject, message)
 
 def get_mail_text(symbol):
     text = ''
@@ -58,18 +67,22 @@ def get_percentage(total, part):
 
 def evaluate_sandp500_stocks():
     print('Started evaluating STOOQ.com stocks ...', flush=True)
-    # Needs to be created from within the same thread
-    data_access = DataAccess()
+    data_access = DataAccess('sandp500')
     global sandp500_stocks
     sandp500_stocks = evaluate_stocks('stooq', 'sandp500.csv', data_access)
 
 def evaluate_fse_stocks():
     print('Started evaluating QUANDL stocks ...', flush=True)
-    # DataAccess needs to be created from within the same thread,
-    # otherwise one object competes for the resources across threads
-    data_access = DataAccess()
+    data_access = DataAccess('quandl_fse_stocks')
     global fse_stocks
     fse_stocks = evaluate_stocks('quandl', 'quandl_fse_stocks.csv', data_access)
+
+def evaluate_iex_stocks():
+    print('Started evaluating IEX stocks ...', flush=True)
+    os.environ["IEX_API_KEY"] = config.data_iex_api_key
+    data_access = DataAccess('sandp_top_100')
+    global iex_stocks
+    iex_stocks = evaluate_stocks('iex', 'sandp_top_100.csv', data_access)
 
 def evaluate_stocks(remote_source, csv_file, data_access):
     output_list = []
@@ -84,14 +97,16 @@ def evaluate_stocks(remote_source, csv_file, data_access):
                 symbol = 'FSE/' + row[0]
             elif remote_source == 'stooq':
                 symbol = row[0] + '.US'
+            elif remote_source == 'iex':
+                symbol = row[0]
             min_rsi = config.default_min_rsi
             max_rsi = config.default_max_rsi
             try:
                 min_rsi = config.custom_rsi(symbol)[0]
                 max_rsi = config.custom_rsi(symbol)[1]
-                print(f'Using custom RSI values ({min_rsi}, {max_rsi}) for {symbol}', flush=True)
+                print(f'{symbol}: Using custom RSI values ({min_rsi}, {max_rsi})', flush=True)
             except KeyError:
-                print(f'Using default values for RSI thresholds for {symbol}', flush=True)
+                print(f'{symbol}: Using default values for RSI thresholds for', flush=True)
             stock = Stock(DAYS, name, symbol, data_access, remote_source, min_rsi, max_rsi)
             output_list.append(stock)
 
@@ -109,14 +124,20 @@ def evaluate_stocks(remote_source, csv_file, data_access):
 
     return output_list
 
-fse_thread = threading.Thread(target=evaluate_fse_stocks)
-fse_thread.start()
+signal.signal(signal.SIGINT, handler)
 
-sandp500_thread = threading.Thread(target=evaluate_sandp500_stocks)
-sandp500_thread.start()
+iex_thread = threading.Thread(target=evaluate_iex_stocks)
+iex_thread.start()
 
-fse_thread.join()
-sandp500_thread.join()
+#fse_thread = threading.Thread(target=evaluate_fse_stocks)
+#fse_thread.start()
+
+#sandp500_thread = threading.Thread(target=evaluate_sandp500_stocks)
+#sandp500_thread.start()
+
+iex_thread.join()
+#fse_thread.join()
+#sandp500_thread.join()
 
 alarms_below = sorted(alarms_below, key=lambda stock: stock.last_rsi)
 alarms_above = sorted(alarms_above, key=lambda stock: stock.last_rsi)

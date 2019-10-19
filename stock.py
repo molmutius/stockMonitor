@@ -32,6 +32,7 @@ class Stock:
         self.name = name
         self.symbol = symbol
         self.data_access = data_access
+        self.source = source
         self.df = self.get_stock_data(source)
         self.min_rsi = min_rsi
         self.max_rsi = max_rsi
@@ -46,15 +47,25 @@ class Stock:
         Fetches this stock as pandas.DataFrame\n
         """
         # QUANDL FSE Data is updated 6:30 pm ET == 00:30 am Berlin
-        print('Getting data for ' + self.symbol + ' [Source: ' + source + ']')
+        print(f'{self.symbol}: Getting data from source: [{source}]')
         past_date = helpers.get_date_in_the_past(self.days)
-        df = self.data_access.get_df_witout_db(self.symbol, past_date, self.today, source)
+        if (config.use_database):
+            df = self.data_access.get_df(self.symbol, past_date, self.today, source)
+        else:
+            df = self.data_access.get_df_from_remote(self.symbol, past_date, self.today, source)
+        #df = self.data_access.get_df_from_remote(self.symbol, past_date, self.today, source)
+        #df.to_csv(r'./algn.csv', sep='\t', encoding='utf-8', header='true')
+        #df = pd.read_csv('./amazon.csv', sep='\t', index_col='date')  
         return df
 
     def get_closing_prices(self):
         """
         Get panda time series of closing prices for this stock. Only consider business days.
         """
+        if (self.source == 'iex'):
+            self.df = self.df.rename(columns={"close": "Close"})
+            self.df.index = pd.to_datetime(self.df.index)
+            #self.df = self.df.iloc[::-1]
         close = self.df['Close']
         past_date = helpers.get_date_in_the_past(self.days)
         all_weekdays = pd.date_range(start=past_date, end=self.today, freq='B')
@@ -69,17 +80,17 @@ class Stock:
         Returns -1 in case calculation is impossible.
         """
         if (not self.has_enough_data):
-            print('Not enough data to calculate RSI for ' + self.symbol)
+            print(f'{self.symbol}: Not enough data to calculate RSI', flush=True)
             return -1
         try:
             if ('RSI14' not in self.df.columns):
                 closings = self.get_closing_prices()
-                self.df = technical_indicators.get_rsi(self.symbol, self.df, closings, 14)
+                self.df = technical_indicators.rsi(self.symbol, self.df, closings, 14)
             last_rsi = self.df['RSI14'].iloc[0]
             self.last_rsi = last_rsi
             return last_rsi
         except (KeyError, ValueError) as e:
-            print(f'Could not determine RSI for {self.symbol}. Cause: {e}')
+            print(f'{self.symbol}: Could not determine RSI. Cause: {e}', flush=True)
             return -1
 
     # This approach breaks when RSI oscilates between the 2 thresholds in 2 consecutive intervals.

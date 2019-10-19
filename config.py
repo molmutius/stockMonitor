@@ -13,6 +13,8 @@ default_min_rsi = int(config['thresholds']['min_rsi'])
 default_max_rsi = int(config['thresholds']['max_rsi'])
 
 data_quandl_api_key = config['data']['quandl_api_key']
+data_iex_api_key = config['data']['iex_api_key']
+use_database = config['data']['use_database']
 
 def custom_rsi(symbol):
     '''Returns custom rsi as array if present for that symbol. Raises KeyError if not present.'''

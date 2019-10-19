@@ -5,12 +5,10 @@ This script fetches stock data, calculates RSI values and alarms via email if ce
 2. Clone (or pull to update) this repository ```git clone https://github.com/molmutius/stockMonitor.git'```
 3. Install dependencies
     ```
-    python -m pip install--upgrade pip
-    python -m pip install pandas
-    python -m pip install pandas-datareader
-    python -m pip install matplotlib
+    cd stockMonitor
+    pip install -r requirements.txt
     ```
-4. Adjust secrets, thresholds and email in ```config.ini```
+4. Adjust secrets, thresholds, email and other configs in ```config.ini```
 5. Execute with ```python monitor.py```
 6. If you need to run this on a regular basis, a good idea would be to configure a cron job. Example for daily execution at 5am:
     ```

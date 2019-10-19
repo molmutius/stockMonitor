@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 from enum import Enum
+import traceback
 
 class Indicators(Enum):
     RSI14 = 1
@@ -40,14 +41,35 @@ def get_rsi(symbol, df, series, period=14):
         rolling_down = down.ewm(com=period).mean()
 
         rs = rolling_up / rolling_down
+
         rsi = 100.0 - 100.0 / (1.0 + rs)
         rsi_series = pd.Series((rsi), name='RSI' + str(period))
 
         df = df.join(rsi_series)
+        #print(df)
         return df
     except (IndexError, ValueError) as e:
         print(f'Error processing {symbol}. Cause: {e}')
         return df
+
+def rsi(symbol, df, series, period=14):
+    delta = series.diff().dropna()
+
+    dUp, dDown = delta.copy(), delta.copy()
+    dUp[dUp < 0] = 0
+    dDown[dDown > 0] = 0
+
+    RolUp = dUp.ewm(com=(period-1), min_periods=period).mean()
+    RolDown = dDown.abs().ewm(com=(period-1), min_periods=period).mean()
+
+    rs = RolUp / RolDown
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+    rsi_series = pd.Series((rsi), name='RSI' + str(period))
+
+    df = df.join(rsi_series)
+
+    #print(df)
+    return df
 
 def get_sma(df, prices, period):
     """
