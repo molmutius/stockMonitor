@@ -48,7 +48,7 @@ class DataAccess:
             elif source == 'iex':
                 df = web.DataReader(symbol, source, start=start_date, end=end_date)
             else:
-                raise "Specified Unknown remote source"
+                raise f'Unknown remote source: {source}'
         except Exception as e:
             print(f'{symbol}: Returning empty dataframe for {symbol}. Cause: {e}', flush=True)
             return pd.DataFrame()

@@ -1,6 +1,4 @@
 """
-TODO: Abstract data access
-TODO: Time series to sql
 TODO: Add 'web' data access type (web crawler), which also creates pandas dataframe (https://www.ariva.de/basf-aktie/historische_kurse)
 TODO: Webserver: representation and control of data
 """
@@ -15,8 +13,10 @@ from datetime import datetime
 from stock import Stock
 from emailer import Emailer
 from data_access import DataAccess
+from history import History
 
 emailer = Emailer()
+history = History()
 DAYS = 60
 
 # Append and get are each atomic ops according to python doc, so
@@ -35,6 +35,8 @@ def handler(signum, frame):
 def send_alarm(alarms_below, alarms_above):
     today = datetime.strftime(datetime.now(), '%Y-%m-%d')
     total_stocks = len(fse_stocks) + len(sandp500_stocks) + len(iex_stocks)
+    history.add_date(today, len(alarms_below), len(alarms_above), total_stocks)
+    history.save_plot(config.history_output_file)
     message = f'RSI Stockmonitor from {today}.\n'
     message += '\n'
     message += f'Total stocks: {total_stocks}\n'
@@ -50,7 +52,7 @@ def send_alarm(alarms_below, alarms_above):
     subject = "Stock Monitor: Symbols exceeded their thresholds"
     for recepient in config.email_recepients:
         print('Sending alarm mail to ' + recepient)
-        #emailer.send_mail(recepient, subject, message)
+        emailer.send_mail(recepient, subject, message, config.history_output_file)
 
 def get_mail_text(symbol):
     text = ''
@@ -129,14 +131,14 @@ signal.signal(signal.SIGINT, handler)
 iex_thread = threading.Thread(target=evaluate_iex_stocks)
 iex_thread.start()
 
-#fse_thread = threading.Thread(target=evaluate_fse_stocks)
-#fse_thread.start()
+fse_thread = threading.Thread(target=evaluate_fse_stocks)
+fse_thread.start()
 
 #sandp500_thread = threading.Thread(target=evaluate_sandp500_stocks)
 #sandp500_thread.start()
 
 iex_thread.join()
-#fse_thread.join()
+fse_thread.join()
 #sandp500_thread.join()
 
 alarms_below = sorted(alarms_below, key=lambda stock: stock.last_rsi)
