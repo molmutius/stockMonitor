@@ -17,10 +17,10 @@ from history import History
 
 emailer = Emailer()
 history = History()
-DAYS = 60
+DAYS = 80
 
-# Append and get are each atomic ops according to python doc, so
-# no synchronization required when accessed from different threads
+# Append and get on arrays are each atomic ops according to python doc,
+# so no synchronization required when accessed from different threads.
 alarms_above = []
 alarms_below = []
 
@@ -81,10 +81,11 @@ def evaluate_fse_stocks():
 
 def evaluate_iex_stocks():
     print('Started evaluating IEX stocks ...', flush=True)
+    filename = 'sandp_top_250'
     os.environ["IEX_API_KEY"] = config.data_iex_api_key
-    data_access = DataAccess('sandp_top_100')
+    data_access = DataAccess(filename)
     global iex_stocks
-    iex_stocks = evaluate_stocks('iex', 'sandp_top_100.csv', data_access)
+    iex_stocks = evaluate_stocks('iex', f'{filename}.csv', data_access)
 
 def evaluate_stocks(remote_source, csv_file, data_access):
     output_list = []

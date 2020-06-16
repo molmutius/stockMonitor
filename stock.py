@@ -101,9 +101,12 @@ class Stock:
         above = self.df['RSI14'] >= self.max_rsi
         below = self.df['RSI14'] <= self.min_rsi
         exceed_mask = above | below
-        # Get date of the first index before today where the threshold is not exceeded
+        # Get date of the first index where the threshold is not exceeded
+        # And add 1 day. This way we can be sure we are actually looking
+        # at the most recent exceeding interval.
         first_date_not_exceeded = self.df[exceed_mask.eq(0)].index[0]
-        return datetime.strftime(first_date_not_exceeded, '%Y-%m-%d')
+        first_date_exceeded = first_date_not_exceeded + timedelta(days=1)
+        return datetime.strftime(first_date_exceeded, '%Y-%m-%d')
 
     def draw_plot(self, indicators):
         """
